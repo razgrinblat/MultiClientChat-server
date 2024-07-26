@@ -54,7 +54,7 @@ Server::Server()
 	}
 }
 
-void Server::Broadcast(SOCKET client_socket ,char buffer[1024])
+void Server::Broadcast(SOCKET client_socket ,char buffer[BUFFERSIZE])
 {
 	for (int i = 0; i < _master.fd_count; i++)
 	{
@@ -70,7 +70,7 @@ void Server::DisplayActiveClients()
 {
 	if (_master.fd_count == 1)
 	{
-		std::cout << "***No Clients Connected***";
+		std::cout << "***No Clients Connected***\n";
 		return;
 	}
 	std::cout << "the connected clients:\n";
@@ -91,15 +91,17 @@ void Server::AcceptNewConnection(SOCKET socket)
 	FD_SET(client, &_master);
 	DisplayActiveClients();
 	//Send a welcome message
-	const char* welcomeMsg = "Welcome to the Raz server\r\n";
+	const char* welcomeMsg = "Welcome to my server\r\ntype 'exit' to close the chat\n\r";
 	send(client, welcomeMsg, strlen(welcomeMsg), 0);
 }
 
 void Server::DropClient(SOCKET sock)
 {
-	closesocket(sock);
 	FD_CLR(sock, &_master);
 	DisplayActiveClients();
+	closesocket(sock);
+	
+	
 }
 
 void Server::OpenChat()
@@ -108,6 +110,7 @@ void Server::OpenChat()
 	FD_SET(_server_fd, &_master); //Add the listenning socket to the set
 	while (true)
 	{
+		
 		fd_set copy = _master;
 		//master contains all the clients file descriptors, copy contains all the actives fd's after calling select()
 		int activeSocketCount = select(FD_SETSIZE, &copy, nullptr, nullptr, nullptr);
@@ -125,8 +128,12 @@ void Server::OpenChat()
 				memset(&buf, 0, BUFFERSIZE);
 
 				int bytes = recv(sock, buf, BUFFERSIZE, 0);
+				if (strcmp(buf, "exit") == 0)
+				{
+					DropClient(sock);
+				}
 
-				if (bytes == 0)
+				if (bytes <= 0)
 				{
 					DropClient(sock);
 				}
@@ -144,13 +151,14 @@ void Server::Close()
 	//close Listenning Socket
 	if (closesocket(_server_fd) == SOCKET_ERROR)
 	{
-		printf("closing failed \n");
+		std::cout << "closing failed\n";
 	}
 	//WSAcleanup
 	if (WSACleanup() == SOCKET_ERROR)
 	{
-		printf("cleenup failed \n");
+		std::cout << "cleenup failed\n";
 	}
+	exit(EXIT_FAILURE);
 }
 
 

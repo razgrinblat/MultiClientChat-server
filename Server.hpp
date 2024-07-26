@@ -20,7 +20,7 @@ private:
 public:
 	Server();
 	void DisplayActiveClients();
-	void Broadcast(SOCKET client_socket,char buffer[1024]);
+	void Broadcast(SOCKET client_socket,char buffer[BUFFERSIZE]);
 	void AcceptNewConnection(SOCKET socket);
 	void DropClient(SOCKET socket);
 	void OpenChat();
