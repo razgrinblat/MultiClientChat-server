@@ -3,6 +3,6 @@
 int main()
 {
 	Server server = Server();
-	server.OpenChat();
-	server.Close();
+	server.openChat();
+	server.close();
 }
