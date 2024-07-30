@@ -45,8 +45,7 @@ Server::Server()
 	if (bindResult == SOCKET_ERROR)
 	{
 		std::cout << "Failed to listenning to local server\n";
-		close();
-		
+		close();	
 	}
 	else
 	{
@@ -54,11 +53,16 @@ Server::Server()
 	}
 }
 
-void Server::broadcast(SOCKET client_socket ,char buffer[BUFFERSIZE])
+void Server::broadcast(SOCKET client_socket , const char buffer[BUFFERSIZE])
 {
-	if (_users_map[client_socket] == "")
+	std::string username(buffer + DATA_SIZE);
+	if (username == "USERS")
 	{
-		char* username = buffer + DATA_SIZE;
+		send(client_socket, buffer, BUFFERSIZE, 0);
+		return;
+	}
+	if (_users_map[client_socket].empty())
+	{
 		_users_map[client_socket] = username;
 	}
 	for (int i = 0; i < _master.fd_count; i++)
@@ -97,63 +101,54 @@ void Server::displayActiveClients()
 
 std::string Server::displayAllUsernames()
 {
-	std::string users_msg = "$users$\n";
+	std::string users_msg = "\n";
 	for (const auto& x : _users_map)
 	{
 		users_msg += x.second + std::string("\r\n");
 	}
+	users_msg += "========================";
 	return users_msg;
 }
 
 void Server::acceptNewConnection(SOCKET socket)
 {
-	
 	//Accept a new connection
 	SOCKET client = accept(socket, (sockaddr*)&client, nullptr);
 	//Add the new connection to the list of clients
 	FD_SET(client, &_master);
 	displayActiveClients();
 	//Send a welcome message
-	const char* welcomeMsg = "Welcome to my server\r\ntype 'exit' to close the chat\n\rtype $users$ to see all usernames";
+	const char* welcomeMsg = "Welcome to my server\r\ntype $exit$ to close the chat\n\rtype $users$ to see all usernames";
 	send(client, welcomeMsg, strlen(welcomeMsg), 0);
-
-	//char binary_size[32];
-	//recv(socket, binary_size, 32, 0);
-	//int length = std::stoi(binary_size);
-	//char* username = new char[length];
-	//recv(socket, username, length, 0);
-	//_users_map[client] = username; //insert the username into [client FD, name] map
-
 }
 
 void Server::acceptNewMessage(SOCKET sock)
 {
-	char buf[BUFFERSIZE];
-	memset(&buf, 0, BUFFERSIZE);
+	char buffer[BUFFERSIZE];
+	memset(&buffer, 0, BUFFERSIZE);
 
-	int bytes = recv(sock, buf, BUFFERSIZE, 0);
+	int bytes = recv(sock, buffer, BUFFERSIZE, 0);
 	if (bytes <= 0)
 	{
 		dropClient(sock);
 		return;
 	}
-	if (strcmp(buf, "exit") == 0)
+	if (strcmp(buffer + DATA_SIZE, "EXIT MESSAGE") == 0)
 	{
+		broadcast(sock, buffer);
 		dropClient(sock);
 		return;
 	}
-	if (strcmp(buf,"$users$") == 0)
+	if (strcmp(buffer + DATA_SIZE, "USERS") == 0)
 	{
 		std::string users_msg = displayAllUsernames();
-		int send_result = send(sock, users_msg.c_str(), users_msg.size() + 1, 0);
-		if (send_result == SOCKET_ERROR)
-		{
-			std::cout << "Error in get users name\n";
-		}	
+		std::memcpy(buffer + DATA_SIZE + USERNAME_MAX_SIZE, users_msg.c_str(), users_msg.size() + 1);
+		broadcast(sock, buffer);
+		return;
 	}
 	else
 	{
-		broadcast(sock, buf);
+		broadcast(sock, buffer);
 	}
 }
 
@@ -171,7 +166,6 @@ void Server::openChat()
 	FD_SET(_server_fd, &_master); //Add the listenning socket to the set
 	while (true)
 	{
-		
 		fd_set copy = _master;
 		//master contains all the clients file descriptors, copy contains all the actives fd's after calling select()
 		int activeSocketCount = select(FD_SETSIZE, &copy, nullptr, nullptr, nullptr);
