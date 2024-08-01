@@ -4,5 +4,4 @@ int main()
 {
 	Server server = Server();
 	server.openChat();
-	server.close();
 }
