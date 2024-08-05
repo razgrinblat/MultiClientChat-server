@@ -86,7 +86,7 @@ void Server::displayActiveClients()
 			std::array<char, INET_ADDRSTRLEN> address;
 			struct sockaddr_in address_struct;
 			int addr_size = sizeof(address_struct);
-			getpeername(_master_sockets.fd_array[i], (sockaddr*)&address_struct, &addr_size);
+			getpeername(_master_sockets.fd_array[i], reinterpret_cast<sockaddr*>(&address_struct), &addr_size);
 			int port = ntohs(address_struct.sin_port);
 			inet_ntop(AF_INET, &address_struct.sin_addr, address.data(),address.size());//convert IPv4 addresses from binary to text
 			std::cout << "Client ip: " << address.data() << ", Port: " << port << std::endl;
@@ -94,23 +94,23 @@ void Server::displayActiveClients()
 	}
 }
 
-std::string Server::displayAllUsernames()
+std::string Server::getUsernamesString()
 {
 	std::string users_msg = "\n";
 	for (const auto& x : _users_map)
 	{
-		users_msg += x.second + std::string("\r\n");
+		users_msg += x.second + std::string(NEW_LINE);
 	}
-	users_msg += "========================";
+	users_msg += "*======================*";
 	return users_msg;
 }
 
-void Server::broadcast(SOCKET client_socket , const std::array<char, BUFFERSIZE> &buffer)
+void Server::broadcast(SOCKET client_socket, const std::vector<char>& buffer)
 {
-	std::string username(buffer.data());
-	if (username == USERS_COMMAND)
+	std::string username = buffer.data() + DATA_SIZE;
+	if (username == USERS_COMMAND)	
 	{
-		send(client_socket, buffer.data(), BUFFERSIZE, 0);
+		send(client_socket, buffer.data(), buffer.size(), 0);
 		return;
 	}
 	if (_users_map[client_socket].empty())
@@ -122,10 +122,11 @@ void Server::broadcast(SOCKET client_socket , const std::array<char, BUFFERSIZE>
 		SOCKET outSocket = _master_sockets.fd_array[i];
 		if (outSocket != _server_fd && outSocket != client_socket)
 		{
-			send(outSocket, buffer.data(), BUFFERSIZE, 0);
+			send(outSocket, buffer.data(), buffer.size(), 0);
 		}
 	}
 }
+
 
 void Server::acceptNewConnection(SOCKET socket)
 {
@@ -135,7 +136,7 @@ void Server::acceptNewConnection(SOCKET socket)
 	FD_SET(client, &_master_sockets);
 	displayActiveClients();	
 	//Send a welcome message
-	constexpr auto welcomeMsg = R"(
+	static constexpr auto welcomeMsg = R"(
    ___________________________________________________
   / _________________________________________________ \
  | |        _____  ._.             ._.      ._.      | |
@@ -160,30 +161,45 @@ void Server::acceptNewConnection(SOCKET socket)
 	send(client, welcomeMsg, strlen(welcomeMsg), 0);
 }
 
+void Server::handleUsesrsCommand(std::vector<char> &buffer, std::string &command, SOCKET socket)
+{
+	std::array<char, DATA_SIZE + 1> pdu_size;
+	std::string users_msg = getUsernamesString();
+	std::snprintf(pdu_size.data(), pdu_size.size(), "%04d", users_msg.size() + strlen(USERS_COMMAND) + sizeof(NULL_TERMINATOR) + 1);
+	buffer.clear();
+	buffer.insert(buffer.end(), pdu_size.begin(), pdu_size.end() - 1);
+	buffer.insert(buffer.end(), command.begin(), command.end());
+	buffer.push_back('\0');
+	buffer.insert(buffer.end(), users_msg.begin(), users_msg.end());
+	buffer.push_back('\0');
+	broadcast(socket, buffer);
+}
+
 void Server::acceptNewMessage(SOCKET sock)
 {
-	std::array<char, BUFFERSIZE> buffer;
-	buffer.fill(0);
+	std::array<char, DATA_SIZE + 1> pdu_size_str = {};
+	pdu_size_str.fill(0);
+	recv(sock, pdu_size_str.data(), DATA_SIZE + 1, 0);
 
-	int bytes = recv(sock, buffer.data(), BUFFERSIZE, 0);
+	int pdu_length = std::atoi(pdu_size_str.data());
+	std::vector<char> buffer(pdu_length);
+
+	int bytes = recv(sock, buffer.data(), pdu_length, 0);
 	if (bytes <= 0)
 	{
 		dropClient(sock);
 		return;
 	}
-	std::string username = buffer.data();
-	if (username.compare(EXIT_MESSAGE_COMMAND) == 0)
+	std::string username = buffer.data() + DATA_SIZE;
+	if (username == EXIT_MESSAGE_COMMAND)
 	{
 		broadcast(sock, buffer);
 		dropClient(sock);
 		return;
 	}
-	if (username.compare(USERS_COMMAND) == 0)
+	if (username == USERS_COMMAND)
 	{
-		std::string users_msg = displayAllUsernames();
-		std::memcpy(buffer.data() + USERNAME_MAX_SIZE + DATA_SIZE, users_msg.c_str(), users_msg.size() + 1);
-		broadcast(sock, buffer);
-		return;
+		handleUsesrsCommand(buffer, username, sock);
 	}
 	else
 	{
@@ -210,7 +226,7 @@ void Server::openChat()
 		int activeSocketCount = select(FD_SETSIZE, &copy, nullptr, nullptr, nullptr);
 		if (activeSocketCount == SOCKET_ERROR)
 		{
-			std::cout << "Error with Select function";
+			throw std::runtime_error("Error with Select function");
 		}
 		for (int i = 0; i < activeSocketCount; i++)
 		{
